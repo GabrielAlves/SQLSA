@@ -1,3 +1,4 @@
+import re
 # Caso prefira usar regex para separar os tokens(parece estar funcionando):
 # import re
 # regex = r"([\s,;\)\(]+)"
@@ -12,143 +13,330 @@
 #     for token in tokens:
 #         if token == " " or token == "":
 #             continue
-        
+
 #         novos_tokens.append(token.strip())
 
 #     return novos_tokens
 
 
-# TODO: lembrar de ler o token ";" no final das regras chamadas lá em REGRA_COMANDO 
+# TODO: lembrar de ler o token ";" no final das regras chamadas lá em REGRA_COMANDO
 # Gramática:
-# REGRA_COMANDO -> "use" REGRA_USE; | "create" REGRA_CREATE; | "insert" REGRA_INSERT; | "select" REGRA_SELECT; | 
+# REGRA_COMANDO -> "use" REGRA_USE; | "create" REGRA_CREATE; | "insert" REGRA_INSERT; | "select" REGRA_SELECT; |
 # "update" REGRA_UPDATE; | "delete" REGRA_DELETE; | "truncate" REGRA_TRUNCATE;
 # REGRA_USE -> id
-# REGRA_CREATE -> "database" id | "table" id (id tipo[, id tipo]*) 
-# ETC
+# REGRA_CREATE -> "database" id | "table" id (id tipo[, id tipo]*)
+# REGRA_ID_TIPO_EXTRA -> , id tipo REGRA_ID_TIPO_EXTRA | 'vazio'
+# REGRA_INSERT -> "INTO" <id> (<id> REGRA_ID_EXTRA) "VALUES" REGRA_VALUES
+# REGRA_ID_EXTRA -> , <id> REGRA_ID_EXTRA | 'vazio'
+# REGRA_VALUES -> (<valor> REGRA_VALUES_EXTRA)
+# REGRA_VALUES_EXTRA -> , <valor> REGRA_VALUES_EXTRA | 'vazio'
+# REGRA_SELECT -> "FROM" <id> | <id> REGRA_ID_EXTRA "FROM" <id> | * "FROM" <id> REGRA_*_FROM_ID
+# REGRA_*_FROM_ID -> "ORDER" "BY" <id> | "WHERE" <id> = <valor>
+# REGRA_UPDATE -> <id> 'SET' <id> = <valor> WHERE <id> = <valor>
+# REGRA_DELETE -> "FROM" <id> "WHERE" <id> = <valor>
+# REGRA_TRUNCATE -> "TABLE" <id>
 
-TIPOS = ["STRING", "INTEGER", "DOUBLE"] 
+# USE <id>;
+# CREATE DATABASE <id>;
+# CREATE TABLE <id> (<id> <tipo> [, <id> <tipo>]);
+# INSERT INTO <id> (<id> [, <id>]) VALUES (<valor> [, <valor>]) [, (<valor> [, <valor>])];
+# SELECT FROM <id>;
+# SELECT <id> [, <id>]* FROM <id>;
+# SELECT * FROM <id> ORDER BY <id>;
+# SELECT * FROM <id> WHERE <id> = <valor>;
+# UPDATE <id> SET <id> = <valor> WHERE <id> = <valor>;
+# DELETE FROM <id> WHERE <id> = <valor>;
+# TRUNCATE TABLE <id>;
+
+TIPOS = ["STRING", "INTEGER", "DOUBLE"]
 SEPARADORES = [" ", ",", "(", ")", ";"]
-PALAVRAS_RESERVADAS = ["USE", "CREATE", "SELECT", "INSERT", "UPDATE", "DELETE", "TRUNCATE", "DATABASE", "FROM", "INTO", "VALUES", "ORDER_BY", "WHERE", "*", "=", "SET", "TABLE"]
+PALAVRAS_RESERVADAS = ["USE", "CREATE", "SELECT", "INSERT", "UPDATE", "DELETE", "TRUNCATE", "DATABASE", "FROM", "INTO",
+                       "VALUES", "ORDER_BY", "WHERE", "*", "=", "SET", "TABLE"]
 PALAVRAS_RESERVADAS.extend(SEPARADORES)
 PALAVRAS_RESERVADAS.extend(TIPOS)
 
-comando = "CREATE TABLE a(nome string, idade integer)"
+## Recebe um comando retorna uma lista de tokens, utiliza regex
+def getTokens(comando):
+    ## Obtenção dos tokens via regex
+    regex = r"([\s,;\)\(]+)"
+    lista_de_tokens = re.split(regex, comando)
 
-token_atual_eh_separador = False
-index_inicial = 0 # Marca o início de um token
-index_final = 0 # Marca o final de um token
+    ## Tratamento dos Tokens
+    # Removendo Espaços em Branco
+    while ' ' in lista_de_tokens:
+        lista_de_tokens.remove(' ')
+    while '' in lista_de_tokens:
+        lista_de_tokens.remove('')
 
-def eh_id(token):
-    return token not in PALAVRAS_RESERVADAS
+    # Removendo espaços em branco nos tokens
+    for token_index in range(0, len(lista_de_tokens)):
+        lista_de_tokens[token_index] = lista_de_tokens[token_index].replace(' ', '')
+    if lista_de_tokens[-1] == ');':
+        lista_de_tokens[-1] = ')'
+        lista_de_tokens.append(";")
 
-def eh_tipo(token):
-    return token in TIPOS
+    # Adicionando um $ ao final
+    lista_de_tokens.append("$")
 
-# TODO: consertar problemas que ocorrem ao ler separadores diferentes de " " tipo "(", já que são tokens a serem analisados.
-def ler_token():
-    global index_inicial, index_final, token_atual_eh_separador
+    return lista_de_tokens
 
-    # Pula espaços em branco até chegar no começo do próximo token
-    while index_final <= len(comando) - 1 and comando[index_final] == " ":
-        index_final += 1
+## Verifica se o token/sequencia de tokens está de acordo com as regras de produção
+def verifica_token(token):
+    global next_token
 
-    index_inicial = index_final
-
-    if token_atual_eh_separador:
-        index_final += 1
-    
-    # Enquanto não tiver lido toda a entrada
-    while index_final <= len(comando) - 1:
-        char = comando[index_final]
-
-        if char in SEPARADORES:
-            break
-
-        index_final += 1
-
-    # Se o token possuir um único caracter
-    if index_inicial == index_final:
-        char = comando[index_inicial : index_final + 1]
-
-        if char in SEPARADORES:
-            token_atual_eh_separador = True
-
-        token = char
-
+    if next_token.upper() == token:
+        next_token = lista_de_tokens.pop(0)
     else:
-        token = comando[index_inicial : index_final]
+        print(f"ERRO, Token {next_token} não era esperado!, ao invés disso era esperado {token}")
+        exit(1)
 
-    return token.upper()
-
-def main():
-    global index_final
-
-    # REGRA_COMANDO foi executado com sucesso e a string completa foi lida
-    if REGRA_COMANDO() and index_final == len(comando):
-        print("Comando analisado com sucesso")
+# Verifica se o next token é um ID ou não
+def next_token_is_id():
+    if next_token.upper() not in PALAVRAS_RESERVADAS and next_token[0] != ">" and next_token[0] != "<" \
+            and next_token[0] != "!" and not next_token[0].isnumeric() and next_token[0] not in SEPARADORES:
         return True
-
     else:
-        print("Erro ao analisar comando")
         return False
 
-def REGRA_COMANDO():
-    token = ler_token()
-    
-    if token == "USE":
-        token = ler_token()
-
-        if eh_id(token):
-            token = ler_token()
-
-            if token == ";":
-                return True
-            
-            return False
-
-    elif token == "CREATE":
-        return REGRA_CREATE()
-    
-    # elif OUTRAS REGRAS
-
-    # Não bateu com nenhuma das regras acima
+## Verifica Token mas para IDs
+# Altere aqui a definição de um ID
+def verifica_token_id():
+    global next_token
+    if next_token_is_id():
+          next_token = lista_de_tokens.pop(0)
     else:
-        return False 
+        print(f"ERRO, Token {next_token} não era esperado!, ao invés disso era esperado <id>")
+        exit(1)
 
+## Verifica Token mas para Tipos
+def verifica_token_tipo():
+    global next_token
+    if next_token.upper() in TIPOS:
+        next_token = lista_de_tokens.pop(0)
+    else:
+        print(f"ERRO, Token {next_token} não era esperado!, ao invés disso era esperado <tipo>")
+        exit(1)
+
+# verifica se o proximo token é um value ou não
+# Altere aqui a definição do que é um value
+def next_token_is_value():
+    if next_token.isalnum() and next_token not in PALAVRAS_RESERVADAS:
+        return True
+    else:
+        return False
+
+# verifica token mas para values
+def verifica_token_value():
+    global next_token
+    if next_token_is_value():
+        next_token = lista_de_tokens.pop(0)
+    else:
+        print(f"ERRO, Token {next_token} não era esperado!, ao invés disso era esperado <value>")
+        exit(1)
+
+# REGRA_USE -> id
 def REGRA_USE():
-    token = ler_token()
-    return eh_id(token)
+    # Esperando um <id>, se este for o caso apenas passe para o proximo token
+    verifica_token_id()
 
+# REGRA_ID_TIPO_EXTRA -> , id tipo REGRA_ID_TIPO_EXTRA | 'vazio'
+def REGRA_ID_TIPO_EXTRA():
+    # , id tipo REGRA_ID_TIPO_EXTRA
+    if next_token == ',':
+        verifica_token(',')
+        verifica_token_id()
+        verifica_token_tipo()
+        REGRA_ID_TIPO_EXTRA()
+    # 'vazio'
+    else:
+        return
 
+# REGRA_CREATE -> "database" id | "table" id (<id> <tipo> REGRA_ID_TIPO_EXTRA)
 def REGRA_CREATE():
-    token = ler_token()
+    # "database" id
+    if next_token.upper() == "DATABASE":
+        verifica_token("DATABASE")
+        verifica_token_id()
+    # "table" id ( <id> <tipo> REGRA_ID_TIPO_EXTRA )
+    if next_token.upper() == "TABLE":
+        verifica_token("TABLE")
+        verifica_token_id()
+        verifica_token('(')
+        verifica_token_id()
+        verifica_token_tipo()
+        REGRA_ID_TIPO_EXTRA()
+        verifica_token(')')
 
-    if token == "DATABASE":
-        token = ler_token()
 
-        if eh_id(token):
-            return True
-        
-        return False
-        #token = ler_token()
-        #print(token)
+# REGRA_VALUES_EXTRA -> , <valor> REGRA_VALUES_EXTRA | 'vazio'
+def REGRA_VALUES_EXTRA():
+    # , <valor> REGRA_VALUES_EXTRA
+    if next_token == ',':
+        verifica_token(',')
+        verifica_token_value()
+        REGRA_VALUES_EXTRA()
+    # 'vazio'
+    else:
+        return
+# REGRA_VALUES -> (<valor> REGRA_VALUES_EXTRA)
+def REGRA_VALUES():
+    # (<valor> REGRA_VALUES_EXTRA)
+    if next_token == '(':
+        verifica_token('(')
+        verifica_token_value()
+        REGRA_VALUES_EXTRA()
+        verifica_token(')')
 
-    elif token == "TABLE":
-        token = ler_token()
+# REGRA_ID_EXTRA -> , <id> REGRA_ID_EXTRA | 'vazio'
+# Verifica o padrão ", <id>"
+def REGRA_ID_EXTRA():
+    # , <id> REGRA_ID_EXTRA
+    if next_token == ',':
+        verifica_token(',')
+        verifica_token_id()
+        REGRA_ID_EXTRA()
+    # 'vazio'
+    else:
+        return
 
-        if eh_id(token):
-            token = ler_token()
+# REGRA_INSERT -> "INTO" <id> (<id> REGRA_ID_EXTRA) "VALUES" REGRA_VALUES
+def REGRA_INSERT():
+    if next_token.upper() == 'INTO':
+        verifica_token('INTO')
+        verifica_token_id()
+        verifica_token('(')
+        verifica_token_id()
+        REGRA_ID_EXTRA()
+        verifica_token(')')
+        verifica_token('VALUES')
+        REGRA_VALUES()
 
-            if token == "(":
-                token = ler_token()
-                # cha
+# REGRA_all_FROM_ID -> "ORDER" "BY" <id> | "WHERE" <id> = <valor>
+def REGRA_all_FROM_ID():
+    # "ORDER" "BY" <id>
+    if next_token.upper() == 'ORDER':
+        verifica_token('ORDER')
+        verifica_token('BY')
+        verifica_token_id()
+    # "WHERE" <id> = <valor>
+    elif next_token.upper() == 'WHERE':
+        verifica_token('WHERE')
+        verifica_token_id()
+        verifica_token('=')
+        verifica_token_value()
 
-                token = ler_token()
+# REGRA_SELECT -> "FROM" <id> | <id> REGRA_ID_EXTRA "FROM" <id> | * "FROM" <id> REGRA_*_FROM_ID
+def REGRA_SELECT():
+    # "FROM" <id>
+    if next_token.upper() == 'FROM':
+        verifica_token('FROM')
+        verifica_token_id()
+    # <id> REGRA_ID_EXTRA "FROM" <id>
+    elif next_token_is_id():
+        verifica_token_id()
+        REGRA_ID_EXTRA()
+        verifica_token('FROM')
+        verifica_token_id()
+    # * "FROM" <id> REGRA_*_FROM_ID
+    elif next_token == '*':
+        verifica_token('*')
+        verifica_token('FROM')
+        verifica_token_id()
+        REGRA_all_FROM_ID()
 
-                if token == ")":
-                    return True
+# REGRA_UPDATE -> <id> 'SET' <id> = <valor> WHERE <id> = <valor>
+def REGRA_UPDATE():
+    if next_token_is_id():
+        verifica_token_id()
+        verifica_token('SET')
+        verifica_token_id()
+        verifica_token('=')
+        verifica_token_value()
+        verifica_token('WHERE')
+        verifica_token_id()
+        verifica_token('=')
+        verifica_token_value()
 
-        #print(token)
+# REGRA_DELETE -> "FROM" <id> "WHERE" <id> = <valor>
+def REGRA_DELETE():
+    if next_token.upper() ==  "FROM":
+        verifica_token('FROM')
+        verifica_token_id()
+        verifica_token('WHERE')
+        verifica_token_id()
+        verifica_token('=')
+        verifica_token_value()
 
+# REGRA_TRUNCATE -> "TABLE" <id>
+def REGRA_TRUNCATE():
+    if next_token.upper() == "TABLE":
+        verifica_token('TABLE')
+        verifica_token_id()
+
+## Regra inicial da gramatica
+# REGRA_COMANDO -> "use"; REGRA_USE REGRA_COMANDO | "create" REGRA_CREATE; REGRA_COMANDO | "insert" REGRA_INSERT; REGRA_COMANDO
+# "select" REGRA_SELECT; REGRA_COMANDO| "update" REGRA_UPDATE; REGRA_COMANDO | "delete" REGRA_DELETE; REGRA_COMANDO|
+# "truncate" REGRA_TRUNCATE REGRA_COMANDO;
+def REGRA_COMANDO():
+    # "use" REGRA_USE;
+    if next_token.upper() == 'USE':
+        verifica_token('USE')
+        REGRA_USE()
+        verifica_token(';')
+        REGRA_COMANDO()
+    # "create" REGRA_CREATE;
+    elif next_token.upper() == 'CREATE':
+        verifica_token('CREATE')
+        REGRA_CREATE()
+        verifica_token(';')
+        REGRA_COMANDO()
+    # "insert" REGRA_INSERT;
+    elif next_token.upper() == 'INSERT':
+        verifica_token('INSERT')
+        REGRA_INSERT()
+        verifica_token(';')
+        REGRA_COMANDO()
+    # "select" REGRA_SELECT;
+    elif next_token.upper() == 'SELECT':
+        verifica_token('SELECT')
+        REGRA_SELECT()
+        verifica_token(';')
+        REGRA_COMANDO()
+    # "update" REGRA_UPDATE;
+    elif next_token.upper() == 'UPDATE':
+        verifica_token('UPDATE')
+        REGRA_UPDATE()
+        verifica_token(';')
+        REGRA_COMANDO()
+    # "delete" REGRA_DELETE;
+    elif next_token.upper() == 'DELETE':
+        verifica_token('DELETE')
+        REGRA_DELETE()
+        verifica_token(';')
+        REGRA_COMANDO()
+    # "truncate" REGRA_TRUNCATE;
+    elif next_token.upper() == 'TRUNCATE':
+        verifica_token('TRUNCATE')
+        REGRA_TRUNCATE()
+        verifica_token(';')
+        REGRA_COMANDO()
+    else:
+        return
+
+
+# REGRA_DELETE -> "FROM" <id> "WHERE" <id> = <valor>
 if __name__ == "__main__":
-    main()
+    comando = "CREATE database tabela; INSERT INTO tabela(nomes) values (carlso);"
+
+    global lista_de_tokens
+    lista_de_tokens = getTokens(comando)
+    print(f"Lista de Tokens = {lista_de_tokens}")
+    global next_token
+    next_token = lista_de_tokens.pop(0)
+
+    REGRA_COMANDO()
+
+    if next_token == "$":
+        print("Comando Aceito!")
+    else:
+        print(f"Comando Rejeitado! {next_token} não deveria estar ali!")
